@@ -1,0 +1,60 @@
+# Dataset information for downloading
+datasets:
+  svg-icons-simple:
+    path: starvector/svg-icons-simple
+    svg_col: Svg
+    max_samples: null
+
+  svg-emoji-simple:
+    path: starvector/svg-emoji-simple
+    svg_col: Svg
+    max_samples: null
+
+  svg-fonts-simple:
+    path: starvector/svg-fonts-simple
+    svg_col: Svg
+    max_samples: 300000
+
+  svg-stack-simple:
+    path: starvector/svg-stack-simple
+    svg_col: Svg
+    max_samples: 100000
+
+  svgen-500k:
+    path: umuthopeyildirim/svgen-500k
+    svg_col: output
+    max_samples: null
+
+# Cleaning and filtering parameters
+cleaning:
+  drop_tags: ['metadata', 'title', 'desc', 'script']  # Non-rendering and metadata tags to remove from SVGs
+  coordinate_precision: 1 # Number of decimal places to round coordinates to
+  min_char_length: 50
+  max_char_length: 32000
+  max_token_length: 1024  # Filter out SVGs exceeding maximum token length
+  validate_render: false  # Whether to perform render validation using CairoSVG
+
+# Train/val/test split ratios
+split:
+  train: 0.98
+  val: 0.01
+  test: 0.01
+  seed: 42
+
+# Tokenizer parameters
+tokenizer:
+  vocab_size: 8192
+  special_tokens:
+    unk: "<unk>"  # Unknown token
+    bos: "<svg>"  # Beginning of sequence token (start of SVG)
+    eos: "</svg>" # End of sequence token (end of SVG)
+
+block_size: 512 # Context window size
+
+data_paths:
+  raw_dir: "data/raw/"
+  cleaned_dir: "data/cleaned/"
+  processed_dir: "data/processed/"
+  tokenizer_dir: "data/tokenizer/"
+
+debug_mode: false # More verbose logging if set to true
