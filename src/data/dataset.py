@@ -16,10 +16,9 @@ from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
-config = get_config("data/data")
 
-# Context window size
-BLOCK_SIZE = config["block_size"]
+# Model context window size
+BLOCK_SIZE = get_config("shared/core")["block_size"]
 
 
 class SVGDataset(Dataset):
@@ -44,7 +43,7 @@ class SVGDataset(Dataset):
         self.block_size = block_size
         
         logger.info(
-            f"SVGDataset: {len(self.data)} tokens, block_size={block_size} -> {len(self)} chunks"
+            f"SVGDataset: {len(self.data)} tokens, block_size={block_size}"
         )
 
     def __len__(self) -> int:
@@ -69,7 +68,7 @@ class SVGDataset(Dataset):
         logger.info(f"Tokenizing {len(svg_strings)} SVGs...")
 
         all_ids: list[int] = []
-        max_token_length = config["cleaning"]["max_token_length"]
+        max_token_length = get_config("data/data")["cleaning"]["max_token_length"]
         seq_lengths: list[int] = []
         n_filtered = 0
         for ids in tokenizer.encode_batch(
@@ -93,7 +92,7 @@ class SVGDataset(Dataset):
     @classmethod
     def from_file(cls, path: Union[str, os.PathLike], block_size: int = BLOCK_SIZE) -> "SVGDataset":
         """Load a tokenized .bin file."""
-        arr = np.memmap(path, dtype=np.int32, mode="r")
+        arr = np.memmap(path, dtype=np.uint16, mode="r")
         data = torch.from_numpy(arr.astype(np.int64))
         return cls(data, block_size=block_size)
 
@@ -102,8 +101,8 @@ class SVGDataset(Dataset):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        arr = np.memmap(path, dtype=np.int32, mode="w+", shape=(len(self.data),))
-        arr[:] = self.data.numpy().astype(np.int32)
+        arr = np.memmap(path, dtype=np.uint16, mode="w+", shape=(len(self.data),))
+        arr[:] = self.data.numpy().astype(np.uint16)
         arr.flush()
 
         logger.info(f"Saved {len(self.data)} tokens to {path}")

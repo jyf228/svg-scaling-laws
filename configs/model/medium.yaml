@@ -1,0 +1,5 @@
+n_layer: 6
+n_head: 6
+d_model: 384
+d_ff: 1536
+micro_batch_size: 64

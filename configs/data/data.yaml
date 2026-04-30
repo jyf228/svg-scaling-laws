@@ -18,7 +18,7 @@ datasets:
   svg-stack-simple:
     path: starvector/svg-stack-simple
     svg_col: Svg
-    max_samples: 100000
+    max_samples: 200000
 
   svgen-500k:
     path: umuthopeyildirim/svgen-500k
@@ -43,13 +43,11 @@ split:
 
 # Tokenizer parameters
 tokenizer:
-  vocab_size: 8192
+  vocab_size: 4096
   special_tokens:
     unk: "<unk>"  # Unknown token
     bos: "<svg>"  # Beginning of sequence token (start of SVG)
     eos: "</svg>" # End of sequence token (end of SVG)
-
-block_size: 512 # Context window size
 
 data_paths:
   raw_dir: "data/raw/"

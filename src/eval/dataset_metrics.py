@@ -105,7 +105,7 @@ def print_stats_table(stats: dict) -> None:
 
 def plot_sequence_length_histogram(
     stats: dict,
-    out_dir: str | os.PathLike = get_config("evaluation/evaluation")["figures_path"],
+    out_dir: str | os.PathLike = get_config("eval/eval")["figures_path"],
     histogram_bins: int = 60,
 ) -> None:
     """Save one sequence-length histogram PDF per split (train/val/test)."""

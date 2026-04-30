@@ -1,0 +1,5 @@
+n_layer: 10
+n_head: 8
+d_model: 512
+d_ff: 2048
+micro_batch_size: 32

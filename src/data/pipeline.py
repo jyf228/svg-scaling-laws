@@ -1,59 +1,31 @@
-#!/usr/bin/env python3
 """
-End-to-end data preparation pipeline with optional dataset metrics and sample rendering.
+End-to-end data preparation pipeline for download, cleaning, and tokenizing SVG datasets.
 """
 
-import argparse
 import logging
-import sys
-from pathlib import Path
-
-# Make src/ importable regardless of working directory.
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.data.split import create_splits
 from src.data.download import download_datasets
 from src.data.preprocess import process_svgs
 from src.data.tokenizer import SVGTokenizer
 from src.data.dataset import SVGDataset
-from src.evaluation.dataset_metrics import (
+from src.eval.dataset_metrics import (
     compute_dataset_stats,
     print_stats_table,
     plot_sequence_length_histogram,
 )
-from src.evaluation.render import render_samples
-
+from src.eval.render import render_samples
 from src.utils.config import get_config
 
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%H:%M:%S",
-)
 logger = logging.getLogger(__name__)
 
 config = get_config("data/data")
 
 
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Prepare SVG data")
-    p.add_argument(
-        "--datasets",
-        nargs="+",
-        default=["svg-icons-simple"],
-    )
-    p.add_argument("--stats", action="store_true", help="Compute and print dataset stats.")
-    p.add_argument("--render", action="store_true", help="Render a few sample SVGs to PNG.")
-    return p.parse_args()
-
-
-def main() -> None:
-    args = parse_args()
-
+def pipeline(datasets: list[str], use_stats: bool, render: bool) -> None:
     # Step 1: Download datasets
     logger.info("**** Step 1: Download Datasets ****")
-    datasets = download_datasets(args.datasets)
+    datasets = download_datasets(datasets)
     # Combine SVGs from all downloaded datasets
     all_svgs: list[str] = []
     for svgs in datasets.values():
@@ -96,7 +68,7 @@ def main() -> None:
         )
 
     # Step 6: Dataset metrics & histogram
-    if args.stats:
+    if use_stats:
         logger.info("**** Step 6: Compute Dataset Metrics ****")
         stats = compute_dataset_stats(
             seq_lengths=seq_lengths,
@@ -107,10 +79,6 @@ def main() -> None:
         plot_sequence_length_histogram(stats)
 
     # Step 7: Render complexity samples
-    if args.render:
+    if render:
         logger.info("**** Step 7: Render SVG Samples ****")
         render_samples(train_svgs)
-
-
-if __name__ == "__main__":
-    main()

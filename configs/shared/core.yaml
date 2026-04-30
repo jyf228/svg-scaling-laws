@@ -1,0 +1,4 @@
+# Core model configs that are shared across all model sizes
+block_size: 1024
+bias: false
+dropout: 0.0

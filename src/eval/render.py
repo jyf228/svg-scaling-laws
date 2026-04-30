@@ -11,7 +11,7 @@ from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
 
-FIGURES_PATH = get_config("evaluation/evaluation")["figures_path"]
+FIGURES_PATH = get_config("eval/eval")["figures_path"]
 
 # SVG elements that count toward visual complexity
 COMPLEXITY_TAGS = re.compile(

@@ -85,16 +85,26 @@ class SVGTokenizer:
     def from_pretrained(cls, directory: Union[str, os.PathLike] = TOK_DIR) -> "SVGTokenizer":
         """Load a previously saved tokenizer from a specified directory."""
         path = Path(directory)
-        config_path = path / "tokenizer_config.json"
+        tokenizer_path = path / "tokenizer.json"
+        config_path    = path / "tokenizer_config.json"
 
-        # Load vocab size from config if available, otherwise use default
-        if config_path.exists():
-            with open(config_path) as fh:
-                config = json.load(fh)
-            vocab_size = config.get("vocab_size", VOCAB_SIZE)
+        if not tokenizer_path.exists():
+            raise FileNotFoundError(
+                f"No trained tokenizer found at '{tokenizer_path}'. "
+                "Run the data preparation pipeline first (prepare_data.py)."
+            )
+        if not config_path.exists():
+            raise FileNotFoundError(
+                f"No tokenizer config found at '{config_path}'. "
+                "Run the data preparation pipeline first (prepare_data.py)."
+            )
+
+        with open(config_path) as fh:
+            config = json.load(fh)
+        vocab_size = config["vocab_size"]
 
         obj = cls(vocab_size=vocab_size)
-        obj._tokenizer = Tokenizer.from_file(str(path / "tokenizer.json"))
+        obj._tokenizer = Tokenizer.from_file(str(tokenizer_path))
         logger.info(
             f"Loaded tokenizer from {path} (vocab_size={obj._tokenizer.get_vocab_size()})"
         )
