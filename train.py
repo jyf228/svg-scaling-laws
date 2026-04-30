@@ -32,7 +32,7 @@ def parse_args():
     )
     p.add_argument("--run_name", required=True, help="Unique name for this run.")
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Device (cpu | cuda)")
-    p.add_argument("--learning_rate", type=float, required=True)    # TODO: remove and set in YAML once LR sweep is complete
+    p.add_argument("--learning_rate", type=float, required=True)
     return p.parse_args()
 
 
@@ -47,7 +47,7 @@ def build_config(args) -> TrainConfig:
 
     config = TrainConfig(
         **shared,
-        **{k: v for k, v in training.items() if v is not None},
+        **{k: v for k, v in training.items() if v is not None and k != "learning_rate"},    # exclude learning_rate if it's set via CLI
         **model,
         vocab_size=vocab_size,
         learning_rate=args.learning_rate,

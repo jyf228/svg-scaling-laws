@@ -49,7 +49,7 @@ def build_config(args, lr: float, idx: int) -> TrainConfig:
 
     return TrainConfig(
         **shared,
-        **{k: v for k, v in training.items() if v is not None},
+        **{k: v for k, v in training.items() if v is not None and k != "learning_rate"},
         **model,
         vocab_size=vocab_size,
         learning_rate=lr,
