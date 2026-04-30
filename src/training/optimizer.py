@@ -8,7 +8,7 @@ import inspect
 import torch
 from mup import MuAdamW
 
-from training.config import TrainConfig
+from src.training.config import TrainConfig
 
 
 logger = logging.getLogger(__name__)

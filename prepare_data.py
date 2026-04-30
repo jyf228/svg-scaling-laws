@@ -14,7 +14,7 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     p = argparse.ArgumentParser(description="Prepare SVG data")
     p.add_argument(
         "--datasets",

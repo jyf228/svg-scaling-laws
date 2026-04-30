@@ -139,6 +139,7 @@ def train(config: TrainConfig) -> None:
     config.total_steps = total_steps
     if config.warmup_steps is None:
         config.warmup_steps = total_steps // 10
+    config.eval_interval = min(config.eval_interval, max(1, total_steps // 10))
 
     logger.info(
         f"Training: steps={total_steps}  micro_batch={config.micro_batch_size}  grad_accum={grad_accum_steps}  tokens/step={tokens_per_step}  n_train_tokens={n_train_tokens}"
@@ -194,7 +195,7 @@ def train(config: TrainConfig) -> None:
                 f"tok/s={tok_per_sec:.0f}  gpu_mem={gpu_mem_mb:.0f}MB"
             )
 
-        if step > 0 and step % config.eval_interval == 0:
+        if (step > 0 and step % config.eval_interval == 0) or (step == total_steps - 1):
             losses = estimate_loss(model, config, ctx)
             metrics.log(step, train_loss_eval=round(losses["train"], 6), val_loss=round(losses["val"], 6))
             logger.info(f"step {step}  train_loss_eval={losses['train']:.4f}  val_loss={losses['val']:.4f}")

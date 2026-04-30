@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """
 Training entry point.
-
-Usage
------
-python scripts/train.py --model small --run_name small_run_01
-python scripts/train.py --model medium --run_name medium_run_01 --device cuda
 """
 
 import argparse
@@ -27,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     p = argparse.ArgumentParser(description="Train a transformer on SVG data.")
     p.add_argument(
         "--model",
@@ -37,11 +32,11 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--run_name", required=True, help="Unique name for this run.")
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Device (cpu | cuda)")
-    p.add_argument("--learning_rate", type=float, required=True)    # TODO: set in YAML once LR sweep is complete
+    p.add_argument("--learning_rate", type=float, required=True)    # TODO: remove and set in YAML once LR sweep is complete
     return p.parse_args()
 
 
-def build_config(args: argparse.Namespace) -> TrainConfig:
+def build_config(args) -> TrainConfig:
     shared   = get_config("shared/core")
     data_cfg = get_config("data/data")
     model    = get_config(f"model/{args.model}")

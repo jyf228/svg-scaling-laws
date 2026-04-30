@@ -1,12 +1,6 @@
 #!/usr/bin/env python3
 """
 Learning rate sweep.
-
-Usage
------
-python scripts/sweep.py
-python scripts/sweep.py --model tiny --device cuda
-python scripts/sweep.py --lrs 1e-3 3e-4 1e-4
 """
 
 import argparse
@@ -24,10 +18,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DEFAULT_LRS = [1e-4, 3e-4, 1e-3, 3e-3, 1e-2]
+DEFAULT_LRS = [1e-5, 1e-4, 3e-4, 1e-3, 1e-2]
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args():
     p = argparse.ArgumentParser(description="LR sweep.")
     p.add_argument(
         "--model",
@@ -44,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def build_config(args: argparse.Namespace, lr: float) -> TrainConfig:
+def build_config(args, lr: float, idx: int) -> TrainConfig:
     shared   = get_config("shared/core")
     data_cfg = get_config("data/data")
     model    = get_config(f"model/{args.model}")
@@ -60,7 +54,7 @@ def build_config(args: argparse.Namespace, lr: float) -> TrainConfig:
         vocab_size=vocab_size,
         learning_rate=lr,
         device=args.device,
-        run_name=f"sweep_{args.model}_lr{lr:.0e}",
+        run_name=f"sweep_{idx:02d}_{lr:.0e}",
     )
 
 
@@ -71,9 +65,9 @@ def main() -> None:
 
     results: list[tuple[float, float]] = []
 
-    for lr in args.lrs:
-        logger.info(f"--- lr={lr:.2e} ---", lr)
-        config = build_config(args, lr)
+    for idx, lr in enumerate(args.lrs, start=1):
+        logger.info(f"--- lr={lr:.2e} ---")
+        config = build_config(args, lr, idx)
         val_loss = train(config)
         results.append((lr, val_loss))
         print(f"lr={lr:.0e}  val_loss={val_loss:.4f}")

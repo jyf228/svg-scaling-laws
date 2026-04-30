@@ -16,11 +16,12 @@ python prepare_data.py --datasets svg-icons-simple --stats --render
 ## Learning Rate Sweep
 
 ```bash
-python sweep.py --model tiny --device cuda
+python sweep.py --model tiny --device cuda  # use the default learning rates
+python sweep.py --model tiny --device cuda --lrs 1e-3 3e-4 1e-4 # set your own learning rates
 ```
 
 ## Train a Model
 
 ```bash
-python train.py --model tiny --device cuda
+python train.py --model tiny --device cuda --run_name tiny_run_01
 ```
