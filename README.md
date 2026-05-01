@@ -7,8 +7,8 @@ conda env create -f environment.yaml
 conda activate svg-scaling-laws
 ```
 
-Login to W&B.
 ```bash
+# Login to W&B
 wandb login
 ```
 
