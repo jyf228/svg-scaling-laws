@@ -190,6 +190,9 @@ class Transformer(nn.Module):
         per https://github.com/microsoft/mup#basic-usage
         """
         for module in self.modules():
+            if isinstance(module, mup.MuSharedReadout):
+                # Embeddings are input lookup tables and should not get mup-scaled init
+                continue
             if isinstance(module, nn.Linear):
                 mup.init.normal_(module.weight, mean=0.0, std=0.02)
                 if module.bias is not None:

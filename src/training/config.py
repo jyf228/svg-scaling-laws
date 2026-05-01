@@ -53,6 +53,5 @@ class TrainConfig:
             self.run_dir = f"experiments/{self.run_name}"
         if self.min_lr == 0.0:
             self.min_lr = self.learning_rate / 10
-        # YAML lists become Python lists; normalise betas to tuple
         if not isinstance(self.betas, tuple):
             self.betas = tuple(self.betas)

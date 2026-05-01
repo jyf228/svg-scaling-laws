@@ -19,9 +19,9 @@ python prepare_data.py --datasets svg-icons-simple --stats --render
 ## Learning Rate Sweep
 
 ```bash
-python sweep.py --model tiny --device cuda      # use the default learning rates
-python sweep.py --model tiny --device cuda --lrs 1e-3 3e-4 1e-4     # set your own learning rates
-python sweep.py --model tiny --device cuda --mup   # use μP reparameterization
+python lr_sweep.py --model tiny --device cuda      # use the default learning rates
+python lr_sweep.py --model tiny --device cuda --lrs .001 .05 .01     # set your own learning rates
+python lr_sweep.py --model tiny --device cuda --mup   # use μP reparameterization
 ```
 
 ## Train a Model
@@ -38,4 +38,10 @@ python train.py --model tiny --device cuda --run_name tiny_run_01 --mup     # us
 ```bash
 chmod +x scripts/train_model_family.sh
 ./scripts/train_model_family.sh
+```
+
+## Sample Generation
+
+```bash
+python generate.py --run xl_01 --temperatures 0.5 --top_k 50 --top_p 0.9
 ```

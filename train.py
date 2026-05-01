@@ -6,9 +6,6 @@ Training entry point.
 import argparse
 import logging
 
-from dotenv import load_dotenv
-load_dotenv()
-
 from src.utils.config import get_config
 from src.data.tokenizer import SVGTokenizer
 from src.training.trainer import train

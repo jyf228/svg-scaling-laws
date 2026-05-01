@@ -131,21 +131,32 @@ def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: 
     def _mup_config(base: TrainConfig, d_model: int) -> TrainConfig:
         """Builds a new TrainConfig for µP shape construction."""
         # Preserve the ratio between d_ff and d_model when changing d_model.
-        # Set n_head to 1 to ensure d_model is divisible by n_head (doesn't affect the model we use for training)
-        ff_model_ratio = base.d_ff // base.d_model
-        return dataclasses.replace(base, d_model=d_model, d_ff=d_model * ff_model_ratio, n_head=1, use_mup=False)
+        ff_model_ratio = base.d_ff / base.d_model
+        return dataclasses.replace(
+            base,
+            d_model=d_model,
+            d_ff=int(round(d_model * ff_model_ratio)),
+            # Keep architecture consistent with the target model for µP shape inference.
+            n_head=base.n_head,
+            use_mup=False,
+        )
+
+    # Delta should differ in width and remain divisible by n_head.
+    delta_width = d_model_base + max(1, config.n_head)
 
     # Instantiate a base model
-    base_cfg = _mup_config(config, config.d_model_base)
+    base_cfg = _mup_config(config, d_model_base)
     base_model = Transformer(base_cfg)
 
     # Instantiate a "delta" model that differs from the base only in d_model
-    delta_cfg = _mup_config(config, config.d_model_base + 1)
+    delta_cfg = _mup_config(config, delta_width)
     delta_model = Transformer(delta_cfg)
     
     set_base_shapes(model, base_model, delta=delta_model)
     model.reinit_weights_mup()  # reinitialize weights after setting base shapes
-    logger.info(f"µP base shapes set (d_model_base={config.d_model_base})")
+    logger.info(
+        f"µP base shapes set (d_model_base={d_model_base}, d_model_delta={delta_width}, n_head={config.n_head})"
+    )
 
     # We can delete after setting base shapes since they're not used for training
     del base_model, delta_model
