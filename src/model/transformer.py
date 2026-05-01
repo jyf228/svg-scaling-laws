@@ -7,6 +7,8 @@ https://github.com/karpathy/nanoGPT
 import logging
 import math
 
+import mup
+import mup.init
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
@@ -31,10 +33,7 @@ class LayerNorm(nn.Module):
     
 
 class CausalSelfAttention(nn.Module):
-    """
-    Causal self-attention layer with multiple heads. 
-    Adapted from nanoGPT with minimal modifications.
-    """
+    """Causal self-attention layer with multiple heads. Adapted from nanoGPT."""
 
     def __init__(self, config):
         super().__init__()
@@ -43,10 +42,10 @@ class CausalSelfAttention(nn.Module):
             raise ValueError(f"d_model ({config.d_model}) must be divisible by n_head ({config.n_head})")
 
         # Key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.d_model, 3 * config.d_model, bias=config.bias)
+        self.c_attn = (mup.Linear if config.use_mup else nn.Linear)(config.d_model, 3 * config.d_model, bias=config.bias)
 
         # Output projection
-        self.c_proj = nn.Linear(config.d_model, config.d_model, bias=config.bias)
+        self.c_proj = (mup.Linear if config.use_mup else nn.Linear)(config.d_model, config.d_model, bias=config.bias)
         
         # Regularization
         self.attn_dropout = nn.Dropout(config.dropout)
@@ -54,6 +53,7 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.d_model = config.d_model
         self.dropout = config.dropout
+        self.use_mup = config.use_mup
 
         # Flash attention requires PyTorch >= 2.0.  
         # If not available, will use the manual (slower) implementation of attention.
@@ -73,15 +73,20 @@ class CausalSelfAttention(nn.Module):
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
 
+        d_head = C // self.n_head   # dimension per attention head 
+        # Use alternative attention scaling for µP per https://github.com/microsoft/mup#basic-usage
+        attn_scale = (1.0 / d_head) if self.use_mup else (1.0 / math.sqrt(d_head))
+
         # Causal self-attention - Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # Efficient attention using Flash Attention CUDA kernels
             y = F.scaled_dot_product_attention(
-                q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True
+                q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True,
+                scale=attn_scale,
             )
         else:
             # Manual implementation of attention
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            att = (q @ k.transpose(-2, -1)) * attn_scale
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
@@ -95,17 +100,14 @@ class CausalSelfAttention(nn.Module):
     
 
 class MLP(nn.Module):
-    """
-    MLP layer - simple linear layer followed by a non-linearity.
-    Adapted from nanoGPT with minimal modifications.
-    """
+    """MLP layer. Adapted from nanoGPT."""
 
     def __init__(self, config):
         super().__init__()
         # nanoGPT uses 4*d_model for the hidden dimensions of the MLP - here we use d_ff
-        self.c_fc    = nn.Linear(config.d_model, config.d_ff, bias=config.bias)
+        self.c_fc    = (mup.Linear if config.use_mup else nn.Linear)(config.d_model, config.d_ff, bias=config.bias)
         self.gelu    = nn.GELU()
-        self.c_proj  = nn.Linear(config.d_ff, config.d_model, bias=config.bias)
+        self.c_proj  = (mup.Linear if config.use_mup else nn.Linear)(config.d_ff, config.d_model, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
     def forward(self, x):
@@ -137,8 +139,7 @@ class Block(nn.Module):
 
 class Transformer(nn.Module):
     """
-    The full transformer language model.
-    Adapted from nanoGPT with minimal modifications.
+    The full transformer language model. Adapted from nanoGPT.
     """
 
     def __init__(self, config):
@@ -147,6 +148,7 @@ class Transformer(nn.Module):
             raise ValueError("vocab_size and block_size must be specified")
         
         self.config = config
+        self.use_mup = config.use_mup
 
         self.transformer = nn.ModuleDict(dict(
             token_embedding = nn.Embedding(config.vocab_size, config.d_model),
@@ -155,17 +157,23 @@ class Transformer(nn.Module):
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.d_model, bias=config.bias),
         ))
-        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
-        self.transformer.token_embedding.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
+
+        if config.use_mup:
+            # Replace output layer with MuSharedReadout (which also uses weight tying) for µP
+            self.lm_head = mup.MuSharedReadout(self.transformer.token_embedding.weight, bias=False)
+        else:
+            self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+            # Weight tying (https://paperswithcode.com/method/weight-tying)
+            self.transformer.token_embedding.weight = self.lm_head.weight
 
         # Initialize all weights
         self.apply(self._init_weights)
+
         # Apply special scaled init to the residual projections, per GPT-2 paper
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
 
-        # Report number of parameters
         logger.info(f"Number of model parameters: {self._get_num_params()/1e6:.2f}M")
 
     def _init_weights(self, module):
@@ -175,6 +183,34 @@ class Transformer(nn.Module):
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+    def reinit_weights_mup(self) -> None:
+        """
+        Replace init weights with mup.init after base shapes are set
+        per https://github.com/microsoft/mup#basic-usage
+        """
+        for module in self.modules():
+            if isinstance(module, nn.Linear):
+                mup.init.normal_(module.weight, mean=0.0, std=0.02)
+                if module.bias is not None:
+                    torch.nn.init.zeros_(module.bias)
+
+        # Re-apply the scaled init to the residual projections as we did in __init__ but with mup.init
+        for pn, p in self.named_parameters():
+            if pn.endswith('c_proj.weight'):
+                mup.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * self.config.n_layer))
+
+        # Initialize the query matrix to 0 for µP
+        self._zero_init_queries()
+
+    def _zero_init_queries(self) -> None:
+        """
+        Zero-initialize the query matrix per 
+        https://github.com/microsoft/mup#making-your-own-coord-check-plots.
+        """
+        for block in self.transformer.h:
+            with torch.no_grad():
+                block.attn.c_attn.weight[:self.config.d_model, :].zero_()
 
     def _get_num_params(self, non_embedding=True):
         """

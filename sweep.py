@@ -35,6 +35,7 @@ def parse_args():
     p.add_argument(
         "--lrs", nargs="+", type=float, default=DEFAULT_LRS, help="Learning rates to try."
     )
+    p.add_argument("--mup", action="store_true", help="Use µP reparameterization.")
     return p.parse_args()
 
 
@@ -54,7 +55,9 @@ def build_config(args, lr: float, idx: int) -> TrainConfig:
         vocab_size=vocab_size,
         learning_rate=lr,
         device=args.device,
-        run_name=f"sweep_{idx:02d}_{lr:.0e}",
+        run_name=f"sweep_{idx:02d}_{lr:.0e}" + ("_mup" if args.mup else ""),    # Add _mup to run name if using µP
+        use_mup=args.mup,
+        optimizer="mup" if args.mup else "adamw",
     )
 
 

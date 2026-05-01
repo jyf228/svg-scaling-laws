@@ -32,7 +32,8 @@ def parse_args():
     )
     p.add_argument("--run_name", required=True, help="Unique name for this run.")
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Device (cpu | cuda)")
-    p.add_argument("--learning_rate", type=float, required=True)
+    p.add_argument("--learning_rate", type=float, required=False, help="Learning rate for training.")
+    p.add_argument("--mup", action="store_true", help="Use µP reparameterization.")
     return p.parse_args()
 
 
@@ -52,7 +53,9 @@ def build_config(args) -> TrainConfig:
         vocab_size=vocab_size,
         learning_rate=args.learning_rate,
         device=args.device,
-        run_name=args.run_name,
+        run_name=args.run_name + ("_mup" if args.mup else ""),  # Add _mup to run name if using µP
+        use_mup=args.mup,
+        optimizer="mup" if args.mup else "adamw",
     )
 
     logger.info(f"Run: {config.run_name} | model: {args.model} | device: {config.device}")

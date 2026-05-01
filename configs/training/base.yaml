@@ -2,7 +2,6 @@ batch_size_tokens: 524288   # global tokens/optimizer step; controls effective b
 learning_rate: 1e-3         # chosen from sweep results
 min_lr: 0.0                 # floor for LR decay; commonly ~learning_rate/10 - set once learning_rate is set
 warmup_steps: null          # derived as total_steps // 10 in trainer - set here to override
-optimizer: adamw            # adamw or mup
 weight_decay: 0.1
 grad_clip: 1.0 
 betas: [0.9, 0.95]          # AdamW momentum terms (beta1, beta2)

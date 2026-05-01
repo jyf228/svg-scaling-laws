@@ -66,23 +66,21 @@ def _build_adamw_optimizer(model: torch.nn.Module, config: TrainConfig) -> torch
 
 
 def _build_mup_optimizer(model: torch.nn.Module, config: TrainConfig) -> torch.optim.Optimizer:
-    """
-    µP-aware optimizer using MuAdamW.
-    """
+    """Optimizer using MuAdamW."""
     param_dict = {n: p for n, p in model.named_parameters() if p.requires_grad}
 
     decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
     nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
 
     optim_groups = [
-        {"params": decay_params,   "weight_decay": config.weight_decay},
+        {"params": decay_params, "weight_decay": config.weight_decay},
         {"params": nodecay_params, "weight_decay": 0.0},
     ]
 
     n_decay = sum(p.numel() for p in decay_params)
     n_nodecay = sum(p.numel() for p in nodecay_params)
-    logger.info(f"Number decayed parameter tensors (µP): {len(decay_params)}, with {n_decay:,} parameters")
-    logger.info(f"Number non-decayed parameter tensors (µP): {len(nodecay_params)}, with {n_nodecay:,} parameters")
+    logger.info(f"Number decayed parameter tensors: {len(decay_params)}, with {n_decay:,} parameters")
+    logger.info(f"Number non-decayed parameter tensors: {len(nodecay_params)}, with {n_nodecay:,} parameters")
 
     return MuAdamW(
         optim_groups,

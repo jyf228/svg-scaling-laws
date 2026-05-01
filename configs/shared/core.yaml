@@ -2,3 +2,4 @@
 block_size: 1024
 bias: false
 dropout: 0.0
+d_model_base: 128  # µP base model width (set to smallest model's d_model)

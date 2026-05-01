@@ -28,6 +28,10 @@ class TrainConfig:
     betas: tuple[float, float] = (0.9, 0.95)
     seed: int = 1337
 
+    # µP
+    use_mup: bool = False   # whether to use µP reparameterization and optimizer
+    d_model_base: int | None = None  # required when use_mup=True
+
     # Device
     device: str = "cpu"
 

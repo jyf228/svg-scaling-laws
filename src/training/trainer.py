@@ -3,6 +3,7 @@ Training loop for SVG scaling laws experiments.
 """
 
 from contextlib import nullcontext
+import dataclasses
 import logging
 import math
 from pathlib import Path
@@ -11,10 +12,11 @@ import time
 import numpy as np
 import torch
 import wandb
+from mup import set_base_shapes
 
 from src.model.transformer import Transformer
 from src.training.optimizer import build_optimizer
-from src.training.logger import MetricsLogger
+from src.training.logger import TrainLogger
 
 from src.utils.config import get_config
 from src.training.config import TrainConfig
@@ -79,7 +81,8 @@ def _get_lr(step: int, config: TrainConfig) -> float:
 
 
 @torch.no_grad()
-def estimate_loss(model: Transformer, config: TrainConfig, ctx) -> dict[str, float]:
+def _estimate_loss(model: Transformer, config: TrainConfig, ctx) -> dict[str, float]:
+    """Estimate the loss on training and validation sets."""
     out = {}
     model.eval()
     for path, split in [(TRAIN, "train"), (VAL, "val")]:
@@ -94,28 +97,61 @@ def estimate_loss(model: Transformer, config: TrainConfig, ctx) -> dict[str, flo
     return out
 
 
-def _save_checkpoint(model: Transformer, config: TrainConfig, step: int, val_loss: float) -> None:
+def _save_checkpoint(
+    model: Transformer, 
+    config: TrainConfig, 
+    step: int, 
+    val_loss: float
+) -> None:
+    """Save a checkpoint to disk and upload to wandb."""
     run_dir = Path(config.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = run_dir / "checkpoint.pt"
     torch.save(
         {
-            "step":       step,
-            "val_loss":   val_loss,
-            "model":      model.state_dict(),
+            "step": step,
+            "val_loss": val_loss,
+            "model": model.state_dict(),
             "model_config": vars(model.config),
         },
         ckpt_path,
     )
-    wandb.save(str(ckpt_path), base_path=str(run_dir))
-    logger.info(f"Checkpoint saved -> {ckpt_path}  (val_loss={val_loss:.4f})")
+    wandb.save(str(ckpt_path), base_path=str(run_dir))  # Upload checkpoint to wandb
+    logger.info(f"Checkpoint saved at {ckpt_path} (val_loss={val_loss:.4f})")
+
+
+def _load_checkpoint(path: str | Path, model: Transformer, config: TrainConfig) -> dict:
+    # TODO: Implement load checkpoint
+    pass
+
+
+def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: int) -> None:
+    """Set base shapes for µP training."""
+
+    def _mup_config(base: TrainConfig, d_model: int) -> TrainConfig:
+        """Builds a new TrainConfig for µP shape construction."""
+        # Preserve the ratio between d_ff and d_model when changing d_model
+        ff_model_ratio = base.d_ff // base.d_model
+        return dataclasses.replace(base, d_model=d_model, d_ff=d_model * ff_model_ratio, use_mup=False)
+
+    # Instantiate a base model
+    base_cfg = _mup_config(config, config.d_model_base)
+    base_model = Transformer(base_cfg)
+
+    # Instantiate a "delta" model that differs from the base only in the dimension that we want to scale (d_model in this case)
+    delta_cfg = _mup_config(config, config.d_model_base + config.n_head)  # add n_head so that it remains divisible by n_head
+    delta_model = Transformer(delta_cfg)
+    
+    set_base_shapes(model, base_model, delta=delta_model)
+    model.reinit_weights_mup()  # reinitialize weights after setting base shapes
+    logger.info(f"µP base shapes set (d_model_base={config.d_model_base})")
+
+    # We can delete after setting base shapes since they're not used for training
+    del base_model, delta_model
 
 
 def train(config: TrainConfig) -> None:
-    """
-    Training loop.
-    Adapted from nanoGPT's training loop.
-    """
+    """Training loop. Adapted from nanoGPT's training loop."""
     torch.manual_seed(config.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -124,8 +160,12 @@ def train(config: TrainConfig) -> None:
     
     # Initialize model, optimizer, and metrics logger
     model = Transformer(config).to(config.device)
+
+    if config.use_mup:
+        _set_base_shapes_mup(model, config, config.d_model_base)
+
     optimizer = build_optimizer(model, config)
-    metrics = MetricsLogger(config)
+    metrics = TrainLogger(config)
     n_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Model parameters: {n_params:,}")
 
@@ -142,7 +182,8 @@ def train(config: TrainConfig) -> None:
     config.eval_interval = min(config.eval_interval, max(1, total_steps // 10))
 
     logger.info(
-        f"Training: steps={total_steps}  micro_batch={config.micro_batch_size}  grad_accum={grad_accum_steps}  tokens/step={tokens_per_step}  n_train_tokens={n_train_tokens}"
+        f"Training: steps={total_steps}  micro_batch={config.micro_batch_size}  grad_accum={grad_accum_steps}  "
+        f"tokens/step={tokens_per_step}  n_train_tokens={n_train_tokens}"
     )
 
     model.train()
@@ -196,13 +237,12 @@ def train(config: TrainConfig) -> None:
             )
 
         if (step > 0 and step % config.eval_interval == 0) or (step == total_steps - 1):
-            losses = estimate_loss(model, config, ctx)
+            losses = _estimate_loss(model, config, ctx)
             metrics.log(step, train_loss_eval=round(losses["train"], 6), val_loss=round(losses["val"], 6))
             logger.info(f"step {step}  train_loss_eval={losses['train']:.4f}  val_loss={losses['val']:.4f}")
 
-    # Final evaluation for the scaling plot
     epoch_time_s = time.perf_counter() - epoch_start
-    final_losses = estimate_loss(model, config, ctx)
+    final_losses = _estimate_loss(model, config, ctx)
     final_val_loss = final_losses["val"]
     gpu_mem_mb = (
         torch.cuda.max_memory_allocated() / 1e6

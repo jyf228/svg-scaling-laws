@@ -8,8 +8,8 @@ from src.training.config import TrainConfig
 logger = logging.getLogger(__name__)
 
 
-class MetricsLogger:
-    """Thin wrapper around wandb run for logging training metrics."""
+class TrainLogger:
+    """Log training metrics to wandb."""
 
     def __init__(self, config: TrainConfig) -> None:
         self._run = wandb.init(
