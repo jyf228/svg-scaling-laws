@@ -5,9 +5,7 @@
 ```bash
 conda env create -f environment.yaml
 conda activate svg-scaling-laws
-```
 
-```bash
 # Login to W&B
 wandb login
 ```
@@ -31,4 +29,13 @@ python sweep.py --model tiny --device cuda --mup   # use μP reparameterization
 ```bash
 python train.py --model tiny --device cuda --run_name tiny_run_01
 python train.py --model tiny --device cuda --run_name tiny_run_01 --mup     # use μP reparameterization
+```
+
+## Train a Family of Models
+
+`scripts/train_model_family.sh` can be used to train a family of models. Edit it to specify the model sizes and command line args according to what you need.
+
+```bash
+chmod +x scripts/train_model_family.sh
+./scripts/train_model_family.sh
 ```

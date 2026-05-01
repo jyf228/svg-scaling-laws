@@ -130,16 +130,17 @@ def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: 
 
     def _mup_config(base: TrainConfig, d_model: int) -> TrainConfig:
         """Builds a new TrainConfig for µP shape construction."""
-        # Preserve the ratio between d_ff and d_model when changing d_model
+        # Preserve the ratio between d_ff and d_model when changing d_model.
+        # Set n_head to 1 to ensure d_model is divisible by n_head (doesn't affect the model we use for training)
         ff_model_ratio = base.d_ff // base.d_model
-        return dataclasses.replace(base, d_model=d_model, d_ff=d_model * ff_model_ratio, use_mup=False)
+        return dataclasses.replace(base, d_model=d_model, d_ff=d_model * ff_model_ratio, n_head=1, use_mup=False)
 
     # Instantiate a base model
     base_cfg = _mup_config(config, config.d_model_base)
     base_model = Transformer(base_cfg)
 
-    # Instantiate a "delta" model that differs from the base only in the dimension that we want to scale (d_model in this case)
-    delta_cfg = _mup_config(config, config.d_model_base + config.n_head)  # add n_head so that it remains divisible by n_head
+    # Instantiate a "delta" model that differs from the base only in d_model
+    delta_cfg = _mup_config(config, config.d_model_base + 1)
     delta_model = Transformer(delta_cfg)
     
     set_base_shapes(model, base_model, delta=delta_model)
