@@ -31,6 +31,7 @@ def parse_args():
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"], help="Device (cpu | cuda)")
     p.add_argument("--learning_rate", type=float, required=False, help="Learning rate for training.")
     p.add_argument("--mup", action="store_true", help="Use µP reparameterization.")
+    p.add_argument("--resume", default=None, help="Path to a checkpoint to resume training from (e.g. experiments/xl_01/checkpoint.pt).")
     return p.parse_args()
 
 
@@ -70,7 +71,7 @@ def build_config(args) -> TrainConfig:
 def main() -> None:
     args   = parse_args()
     config = build_config(args)
-    train(config)
+    train(config, resume_from=args.resume)
 
 
 if __name__ == "__main__":

@@ -101,28 +101,48 @@ def _save_checkpoint(
     model: Transformer, 
     config: TrainConfig, 
     step: int, 
-    val_loss: float
+    val_loss: float,
+    epoch: int | None = None,
+    optimizer: torch.optim.Optimizer | None = None,
 ) -> None:
     """Save a checkpoint to disk and upload to wandb."""
     run_dir = Path(config.run_dir)
     run_dir.mkdir(parents=True, exist_ok=True)
+    # Always overwrite the latest checkpoint
     ckpt_path = run_dir / "checkpoint.pt"
-    torch.save(
-        {
-            "step": step,
-            "val_loss": val_loss,
-            "model": model.state_dict(),
-            "model_config": vars(model.config),
-        },
-        ckpt_path,
-    )
-    wandb.save(str(ckpt_path), base_path=str(run_dir))  # Upload checkpoint to wandb
-    logger.info(f"Checkpoint saved at {ckpt_path} (val_loss={val_loss:.4f})")
+    payload = {
+        "step": step,
+        "epoch": epoch,
+        "val_loss": val_loss,
+        "model": model.state_dict(),
+        "model_config": vars(model.config),
+        "optimizer": optimizer.state_dict() if optimizer is not None else None,
+    }
+    torch.save(payload, ckpt_path)
+
+    if epoch is not None:
+        epoch_ckpt = run_dir / f"checkpoint_epoch_{epoch:02d}.pt"
+        torch.save(payload, epoch_ckpt)
+        logger.info(f"Checkpoint saved at {epoch_ckpt} (epoch={epoch}, val_loss={val_loss:.4f})")
+    else:
+        logger.info(f"Checkpoint saved at {ckpt_path} (val_loss={val_loss:.4f})")
+    wandb.save(str(ckpt_path), base_path=str(run_dir))
 
 
-def _load_checkpoint(path: str | Path, model: Transformer, config: TrainConfig) -> dict:
-    # TODO: Implement load checkpoint
-    pass
+def _load_checkpoint(path: str | Path, model: Transformer, optimizer: torch.optim.Optimizer | None = None) -> dict:
+    """Load model (and optionally optimizer) weights from a checkpoint. Returns the checkpoint dict."""
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {path}")
+    ckpt = torch.load(path, map_location="cpu")
+    model.load_state_dict(ckpt["model"])
+    if optimizer is not None and "optimizer" in ckpt:
+        optimizer.load_state_dict(ckpt["optimizer"])
+    epoch = ckpt.get("epoch", 0) or 0
+    step  = ckpt.get("step",  0) or 0
+    val_loss = ckpt.get("val_loss", float("inf"))
+    logger.info(f"Resumed from {path} (epoch={epoch}, step={step}, val_loss={val_loss:.4f})")
+    return ckpt
 
 
 def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: int) -> None:
@@ -162,7 +182,7 @@ def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: 
     del base_model, delta_model
 
 
-def train(config: TrainConfig) -> None:
+def train(config: TrainConfig, resume_from: str | Path | None = None) -> None:
     """Training loop. Adapted from nanoGPT's training loop."""
     torch.manual_seed(config.seed)
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -177,6 +197,14 @@ def train(config: TrainConfig) -> None:
         _set_base_shapes_mup(model, config, config.d_model_base)
 
     optimizer = build_optimizer(model, config)
+
+    # Optionally resume from a checkpoint
+    start_epoch = 1
+    if resume_from is not None:
+        ckpt = _load_checkpoint(resume_from, model, optimizer)
+        start_epoch = (ckpt.get("epoch") or 0) + 1
+        logger.info(f"Resuming training from epoch {start_epoch}")
+
     metrics = TrainLogger(config)
     n_params = sum(p.numel() for p in model.parameters())
     logger.info(f"Model parameters: {n_params:,}")
@@ -187,92 +215,109 @@ def train(config: TrainConfig) -> None:
 
     tokens_per_step = config.micro_batch_size * config.block_size * grad_accum_steps  # number of tokens processed per optimizer step 
     n_train_tokens = len(np.memmap(TRAIN, dtype=np.uint16, mode="r"))
-    total_steps = n_train_tokens // tokens_per_step  # total iterations for 1 epoch through the training data
+    steps_per_epoch = n_train_tokens // tokens_per_step
+    total_steps = steps_per_epoch * config.n_epochs
     config.total_steps = total_steps
     if config.warmup_steps is None:
-        config.warmup_steps = total_steps // 10
-    config.eval_interval = min(config.eval_interval, max(1, total_steps // 10))
+        config.warmup_steps = steps_per_epoch // 10
+    config.eval_interval = min(config.eval_interval, max(1, steps_per_epoch // 10))
 
     logger.info(
-        f"Training: steps={total_steps}  micro_batch={config.micro_batch_size}  grad_accum={grad_accum_steps}  "
+        f"Training: epochs={config.n_epochs}  steps/epoch={steps_per_epoch}  total_steps={total_steps}  "
+        f"micro_batch={config.micro_batch_size}  grad_accum={grad_accum_steps}  "
         f"tokens/step={tokens_per_step}  n_train_tokens={n_train_tokens}"
     )
 
     model.train()
-    accum_loss = 0.0
-    epoch_start = time.perf_counter()
+    global_step = 0
+    best_val_loss = float("inf")
+    train_start = time.perf_counter()
     tokens_processed = 0
-    for step in range(total_steps):
-        # Get and set the learning rate for this step
-        lr = _get_lr(step, config)
-        for group in optimizer.param_groups:
-            group["lr"] = lr
 
-        # Forward backward update, with gradient accumulation to simulate larger batch size
-        for _ in range(grad_accum_steps):
-            x, y = _get_batch(TRAIN, config.micro_batch_size, config.block_size, config.device)
-            # Compute loss and backprop
-            with ctx:
-                _, loss = model(x, y)
-            loss = loss / grad_accum_steps   # scale the loss to account for gradient accumulation
-            loss.backward()
-            accum_loss += loss.item()
-
-        # Gradient clipping
-        if config.grad_clip > 0:
-            torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
-
-        optimizer.step()
-        optimizer.zero_grad(set_to_none=True)
-
-        train_loss = accum_loss
+    for epoch in range(start_epoch, config.n_epochs + 1):
+        logger.info(f"--- Epoch {epoch}/{config.n_epochs} ---")
+        epoch_start = time.perf_counter()
         accum_loss = 0.0
-        tokens_processed += tokens_per_step
 
-        if step % config.log_interval == 0:
-            elapsed = time.perf_counter() - epoch_start
-            tok_per_sec = tokens_processed / elapsed if elapsed > 0 else 0.0
-            gpu_mem_mb = (
-                torch.cuda.max_memory_allocated() / 1e6
-                if config.device == "cuda" else 0.0
-            )
-            metrics.log(
-                step,
-                train_loss=round(train_loss, 6),
-                lr=lr,
-                tokens_per_sec=round(tok_per_sec, 1),
-                gpu_mem_mb=round(gpu_mem_mb, 1),
-            )
-            logger.info(
-                f"step {step}/{total_steps}  loss={train_loss:.4f}  lr={lr:.2e}  "
-                f"tok/s={tok_per_sec:.0f}  gpu_mem={gpu_mem_mb:.0f}MB"
-            )
+        for local_step in range(steps_per_epoch):
+            # Get and set the learning rate for this step
+            lr = _get_lr(global_step, config)
+            for group in optimizer.param_groups:
+                group["lr"] = lr
 
-        if (step > 0 and step % config.eval_interval == 0) or (step == total_steps - 1):
-            losses = _estimate_loss(model, config, ctx)
-            metrics.log(step, train_loss_eval=round(losses["train"], 6), val_loss=round(losses["val"], 6))
-            logger.info(f"step {step}  train_loss_eval={losses['train']:.4f}  val_loss={losses['val']:.4f}")
+            # Forward backward update, with gradient accumulation to simulate larger batch size
+            for _ in range(grad_accum_steps):
+                x, y = _get_batch(TRAIN, config.micro_batch_size, config.block_size, config.device)
+                # Compute loss and backprop
+                with ctx:
+                    _, loss = model(x, y)
+                loss = loss / grad_accum_steps   # scale the loss to account for gradient accumulation
+                loss.backward()
+                accum_loss += loss.item()
 
-    epoch_time_s = time.perf_counter() - epoch_start
-    final_losses = _estimate_loss(model, config, ctx)
-    final_val_loss = final_losses["val"]
-    gpu_mem_mb = (
-        torch.cuda.max_memory_allocated() / 1e6
-        if config.device == "cuda" else 0.0
-    )
-    logger.info(
-        f"Training complete. Final val_loss={final_val_loss:.4f}  "
-        f"epoch_time={epoch_time_s:.1f}s  gpu_mem={gpu_mem_mb:.0f}MB"
-    )
-    metrics.log(
-        total_steps,
-        train_loss_eval=round(final_losses["train"], 6),
-        val_loss=round(final_val_loss, 6),
-        epoch_time_s=round(epoch_time_s, 2),
-        gpu_mem_mb=round(gpu_mem_mb, 1),
-    )
-    metrics.log_final(final_val_loss, n_params=n_params)
+            # Gradient clipping
+            if config.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip)
 
-    _save_checkpoint(model, config, step=total_steps, val_loss=final_val_loss)
+            optimizer.step()
+            optimizer.zero_grad(set_to_none=True)
+
+            train_loss = accum_loss
+            accum_loss = 0.0
+            tokens_processed += tokens_per_step
+
+            if global_step % config.log_interval == 0:
+                elapsed = time.perf_counter() - train_start
+                tok_per_sec = tokens_processed / elapsed if elapsed > 0 else 0.0
+                gpu_mem_mb = (
+                    torch.cuda.max_memory_allocated() / 1e6
+                    if config.device == "cuda" else 0.0
+                )
+                metrics.log(
+                    global_step,
+                    train_loss=round(train_loss, 6),
+                    lr=lr,
+                    tokens_per_sec=round(tok_per_sec, 1),
+                    gpu_mem_mb=round(gpu_mem_mb, 1),
+                    epoch=epoch,
+                )
+                logger.info(
+                    f"epoch {epoch}  step {local_step}/{steps_per_epoch} (global {global_step})  "
+                    f"loss={train_loss:.4f}  lr={lr:.2e}  tok/s={tok_per_sec:.0f}"
+                )
+
+            if global_step % config.eval_interval == 0:
+                losses = _estimate_loss(model, config, ctx)
+                metrics.log(global_step, train_loss_eval=round(losses["train"], 6), val_loss=round(losses["val"], 6), epoch=epoch)
+                logger.info(f"epoch {epoch}  step {global_step}  train_loss_eval={losses['train']:.4f}  val_loss={losses['val']:.4f}")
+
+            global_step += 1
+
+        epoch_time_s = time.perf_counter() - epoch_start
+        epoch_losses = _estimate_loss(model, config, ctx)
+        epoch_val_loss = epoch_losses["val"]
+        gpu_mem_mb = (
+            torch.cuda.max_memory_allocated() / 1e6
+            if config.device == "cuda" else 0.0
+        )
+        logger.info(
+            f"Epoch {epoch} complete. val_loss={epoch_val_loss:.4f}  "
+            f"time={epoch_time_s:.1f}s  gpu_mem={gpu_mem_mb:.0f}MB"
+        )
+        metrics.log(
+            global_step,
+            train_loss_eval=round(epoch_losses["train"], 6),
+            val_loss=round(epoch_val_loss, 6),
+            epoch_time_s=round(epoch_time_s, 2),
+            gpu_mem_mb=round(gpu_mem_mb, 1),
+            epoch=epoch,
+        )
+        _save_checkpoint(model, config, step=global_step, val_loss=epoch_val_loss, epoch=epoch, optimizer=optimizer)
+        if epoch_val_loss < best_val_loss:
+            best_val_loss = epoch_val_loss
+
+    total_time_s = time.perf_counter() - train_start
+    logger.info(f"Training complete. Best val_loss={best_val_loss:.4f}  total_time={total_time_s:.1f}s")
+    metrics.log_final(best_val_loss, n_params=n_params)
     metrics.close()
-    return final_val_loss
+    return best_val_loss

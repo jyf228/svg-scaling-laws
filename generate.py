@@ -12,7 +12,7 @@ import torch
 
 from src.data.tokenizer import SVGTokenizer
 from src.eval.metrics import compute_perplexity, evaluate_samples
-from src.eval.render import render_generated_samples, render_grid
+from src.eval.render import render_generated_samples
 from src.generation.sampler import Sampler
 from src.model.transformer import Transformer
 from src.training.config import TrainConfig
@@ -29,11 +29,6 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Generate SVG samples from a trained checkpoint.")
     p.add_argument("--run", required=True, help="Run name (e.g. large_01_mup). Checkpoint loaded from experiments/{run}/checkpoint.pt.")
-    p.add_argument(
-        "--use-prefixes",
-        action="store_true",
-        help="If set, generate prefix-conditioned samples from prompts/prefixes.txt.",
-    )
     p.add_argument("--n_unconditional", type=int, default=10, help="Number of unconditional samples to generate.")
     p.add_argument(
         "--temperatures",
@@ -43,7 +38,7 @@ def parse_args() -> argparse.Namespace:
         help="Temperature values to use for sampling.",
     )
     p.add_argument("--top_k", type=int, default=50, help="Top-k filtering (0 to disable).")
-    p.add_argument("--top_p", type=float, default=0.9, help="Nucleus sampling p (1.0 to disable).")
+    p.add_argument("--top_p", type=float, default=0.9, help="Top-p sampling (1.0 to disable).")
     p.add_argument("--max_new_tokens", type=int, default=512, help="Max new tokens per sample.")
     p.add_argument("--device", default="cpu", choices=["cpu", "cuda"])
     return p.parse_args()
@@ -174,26 +169,6 @@ def main() -> None:
         )
         sample_svgs.extend(svgs)
 
-    # Generate prefix-conditioned samples
-    prefixes = load_prefixes("prompts/prefixes.txt") if args.use_prefixes else []
-    if prefixes:
-        logger.info(f"Generating prefix-conditioned samples for {len(prefixes)} prompts...")
-        for label, prefix_text in prefixes:
-            # Encode the prefix and prepend BOS token
-            prefix_ids = [bos_id] + tokenizer.encode(prefix_text, add_special_tokens=False)
-            safe_label = label.lower().replace(" ", "_")[:40]
-            svgs = generate_and_save(
-                sampler, tokenizer,
-                prompt_ids=prefix_ids,
-                label=safe_label,
-                out_dir=out_dir,
-                temperatures=args.temperatures,
-                top_k=args.top_k,
-                top_p=args.top_p,
-                max_new_tokens=args.max_new_tokens,
-            )
-            sample_svgs.extend(svgs)
-
     # Render generated sample SVGs to PNG
     logger.info("Rendering generated samples to PNG...")
     render_generated_samples(sample_svgs, out_dir=out_dir / "png")
@@ -210,45 +185,16 @@ def main() -> None:
             for p in sorted(out_dir.glob(f"*_t{grid_temp_str}.svg"))
         ]
     ]
-    render_grid(grid_svgs, out_path=out_dir / "grid.png")
 
     # Calculate quantitative metrics
     logger.info("Computing quantitative metrics...")
     metrics = evaluate_samples(sample_svgs)
-
-    # Perplexity
-    data_cfg_paths = get_config("data/data")["data_paths"]
-    test_tokens_path = Path(data_cfg_paths["processed_dir"]) / "test.bin"
-    if test_tokens_path.exists():
-        perplexity = compute_perplexity(
-            model,
-            token_path=test_tokens_path,
-            block_size=config.block_size,
-            device=args.device,
-        )
-        metrics["perplexity"] = perplexity
-    else:
-        logger.warning(f"Test token file not found at {test_tokens_path}; skipping perplexity.")
-        metrics["perplexity"] = None
 
     # Save metrics to JSON
     metrics_path = out_dir / "metrics.json"
     with open(metrics_path, "w") as fh:
         json.dump(metrics, fh, indent=2)
     logger.info(f"Metrics saved to {metrics_path}")
-
-    # --- Summary table ---
-    print("\nEvaluation Summary")
-    print(f"  Total samples        : {metrics['n_total']}")
-    print(f"  XML validity rate    : {metrics['xml_validity_rate']:.1%}  ({metrics['n_xml_valid']}/{metrics['n_total']})")
-    print(f"  SVG render rate      : {metrics['render_rate']:.1%}  ({metrics['n_renders']}/{metrics['n_total']})")
-    print(f"  Structural validity  : {metrics['structural_validity_rate']:.1%}  ({metrics['n_structurally_valid']}/{metrics['n_total']})")
-    if metrics["perplexity"] is not None:
-        print(f"  Perplexity (test)    : {metrics['perplexity']:.2f}")
-    print(f"  Output directory     : {out_dir}")
-    print("\n")
-
-    logger.info(f"Done. {len(sample_svgs)} total SVGs generated. Saved to {out_dir}.")
 
 
 if __name__ == "__main__":

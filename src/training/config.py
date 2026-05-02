@@ -18,7 +18,8 @@ class TrainConfig:
     # Training (training/base.yaml)
     optimizer: str = "adamw"
     batch_size_tokens: int = 524288
-    micro_batch_size: int 
+    micro_batch_size: int
+    n_epochs: int = 8
     total_steps: int = 0    # Set during training
     learning_rate: float
     min_lr: float = 0.0     # Set based on learning rate

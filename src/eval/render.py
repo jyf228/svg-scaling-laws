@@ -2,14 +2,11 @@
 Render SVG samples to PNG for evaluation and report figures.
 """
 
-import io
 import logging
-import math
 import re
 from pathlib import Path
 
 import cairosvg
-from PIL import Image
 from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -93,53 +90,3 @@ def render_generated_samples(
             logger.warning(f"Could not render sample {i}: {exc}")
 
     logger.info(f"Rendered {n_ok}/{len(svgs)} samples. Saved to {out_dir}.")
-
-
-def render_grid(
-    svgs: list[str],
-    out_path: str | Path,
-    cell_size: int = 128,
-    ncols: int | None = None,
-    bg_color: tuple = (240, 240, 240),
-) -> Path | None:
-    """
-    Render up the SVGs as a grid image.
-    Returns the output path, or None if no SVGs rendered successfully.
-    """
-    out_path = Path(out_path)
-    cells = []
-    for svg in svgs:
-        try:
-            png_bytes = cairosvg.svg2png(
-                bytestring=svg.encode(),
-                output_width=cell_size,
-                output_height=cell_size,
-            )
-            img = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
-            # Composite onto white background
-            bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-            bg.paste(img, mask=img.split()[3])
-            cells.append(bg.convert("RGB"))
-        except Exception as exc:
-            logger.debug(f"Skipping unrenderable SVG: {exc}")
-            # Insert a grey placeholder so grid positions stay consistent
-            placeholder = Image.new("RGB", (cell_size, cell_size), bg_color)
-            cells.append(placeholder)
-
-    if not cells:
-        logger.warning("No SVGs could be rendered for grid.")
-        return None
-
-    if ncols is None:
-        ncols = max(1, math.ceil(math.sqrt(len(cells))))
-
-    nrows = math.ceil(len(cells) / ncols)
-    grid = Image.new("RGB", (ncols * cell_size, nrows * cell_size), (255, 255, 255))
-    for idx, cell in enumerate(cells):
-        row, col = divmod(idx, ncols)
-        grid.paste(cell, (col * cell_size, row * cell_size))
-
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    grid.save(out_path)
-    logger.info(f"Saved grid ({len(cells)} samples, {nrows}×{ncols}). Saved to {out_path}.")
-    return out_path

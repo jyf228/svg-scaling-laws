@@ -27,8 +27,8 @@ python lr_sweep.py --model tiny --device cuda --mup   # use μP reparameterizati
 ## Train a Model
 
 ```bash
-python train.py --model tiny --device cuda --run_name tiny_run_01
-python train.py --model tiny --device cuda --run_name tiny_run_01 --mup     # use μP reparameterization
+python train.py --model tiny --device cuda --learning_rate 3e-3 --run_name tiny_run_01
+python train.py --model tiny --device cuda --learning_rate 3e-3 --run_name tiny_run_01 --mup     # use μP reparameterization
 ```
 
 ## Train a Family of Models
