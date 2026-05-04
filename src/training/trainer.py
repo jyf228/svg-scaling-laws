@@ -161,8 +161,13 @@ def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: 
             use_mup=False,
         )
 
+    # Ensure d_model_base is divisible by n_head (required by attention).
+    n_head = config.n_head
+    if d_model_base % n_head != 0:
+        d_model_base = ((d_model_base + n_head - 1) // n_head) * n_head
+
     # Delta should differ in width and remain divisible by n_head.
-    delta_width = d_model_base + max(1, config.n_head)
+    delta_width = d_model_base + n_head
 
     # Instantiate a base model
     base_cfg = _mup_config(config, d_model_base)
@@ -197,6 +202,8 @@ def train(config: TrainConfig, resume_from: str | Path | None = None) -> None:
         _set_base_shapes_mup(model, config, config.d_model_base)
 
     optimizer = build_optimizer(model, config)
+    # Store the the learning rates for each param group (for µP scaling)
+    base_lrs = [group["lr"] for group in optimizer.param_groups]
 
     # Optionally resume from a checkpoint
     start_epoch = 1
@@ -240,10 +247,11 @@ def train(config: TrainConfig, resume_from: str | Path | None = None) -> None:
         accum_loss = 0.0
 
         for local_step in range(steps_per_epoch):
-            # Get and set the learning rate for this step
+            # Apply schedule relatively so μP per-group LR scaling is preserved.
             lr = _get_lr(global_step, config)
-            for group in optimizer.param_groups:
-                group["lr"] = lr
+            lr_scale = lr / config.learning_rate
+            for group, base_lr in zip(optimizer.param_groups, base_lrs):
+                group["lr"] = base_lr * lr_scale
 
             # Forward backward update, with gradient accumulation to simulate larger batch size
             for _ in range(grad_accum_steps):

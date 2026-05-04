@@ -9,3 +9,5 @@ reports/
 *.pdf
 *.png
 *.log
+
+.DS_Store
