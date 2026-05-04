@@ -247,10 +247,11 @@ def train(config: TrainConfig, resume_from: str | Path | None = None) -> None:
         accum_loss = 0.0
 
         for local_step in range(steps_per_epoch):
-            # Apply schedule relatively so μP per-group LR scaling is preserved.
             lr = _get_lr(global_step, config)
             lr_scale = lr / config.learning_rate
             for group, base_lr in zip(optimizer.param_groups, base_lrs):
+                # Apply schedule so μP per-group LR scaling is preserved
+                # per https://github.com/microsoft/mup#current-limitations
                 group["lr"] = base_lr * lr_scale
 
             # Forward backward update, with gradient accumulation to simulate larger batch size
