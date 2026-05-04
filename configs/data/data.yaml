@@ -43,7 +43,7 @@ split:
 
 # Tokenizer parameters
 tokenizer:
-  vocab_size: 4096
+  vocab_size: 8000
   special_tokens:
     unk: "<unk>"  # Unknown token
     bos: "<svg>"  # Beginning of sequence token (start of SVG)

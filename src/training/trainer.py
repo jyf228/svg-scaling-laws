@@ -67,17 +67,18 @@ def _get_lr(step: int, config: TrainConfig) -> float:
 
     # 1. Linear warmup for the first `warmup_iters` steps
     if step < warmup_iters:
-        return lr * (step + 1) / (warmup_iters + 1)
-    
+        absolute_lr = lr * (step + 1) / (warmup_iters + 1)
     # 2. If step > lr_decay_iters, return min learning rate
-    if step > lr_decay_iters:
-        return min_lr
-    
+    elif step > lr_decay_iters:
+        absolute_lr = min_lr
     # 3. In between, use cosine decay down to min learning rate
-    decay_ratio = (step - warmup_iters) / (lr_decay_iters - warmup_iters)
-    assert 0 <= decay_ratio <= 1
-    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
-    return min_lr + coeff * (lr - min_lr)
+    else:
+        decay_ratio = (step - warmup_iters) / (lr_decay_iters - warmup_iters)
+        assert 0 <= decay_ratio <= 1
+        coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
+        absolute_lr = min_lr + coeff * (lr - min_lr)
+
+    return absolute_lr / lr
 
 
 @torch.no_grad()
@@ -145,7 +146,7 @@ def _load_checkpoint(path: str | Path, model: Transformer, optimizer: torch.opti
     return ckpt
 
 
-def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: int) -> None:
+def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: int, rescale_params: bool = True) -> None:
     """Set base shapes for µP training."""
 
     def _mup_config(base: TrainConfig, d_model: int) -> TrainConfig:
@@ -177,8 +178,9 @@ def _set_base_shapes_mup(model: Transformer, config: TrainConfig, d_model_base: 
     delta_cfg = _mup_config(config, delta_width)
     delta_model = Transformer(delta_cfg)
     
-    set_base_shapes(model, base_model, delta=delta_model)
-    model.reinit_weights_mup()  # reinitialize weights after setting base shapes
+    set_base_shapes(model, base_model, delta=delta_model, rescale_params=rescale_params)
+    if rescale_params:
+        model.reinit_weights_mup()  # reinitialize weights after setting base shapes
     logger.info(
         f"µP base shapes set (d_model_base={d_model_base}, d_model_delta={delta_width}, n_head={config.n_head})"
     )
@@ -211,6 +213,10 @@ def train(config: TrainConfig, resume_from: str | Path | None = None) -> None:
         ckpt = _load_checkpoint(resume_from, model, optimizer)
         start_epoch = (ckpt.get("epoch") or 0) + 1
         logger.info(f"Resuming training from epoch {start_epoch}")
+        # torch.save does not persist infshape objects attached to parameter
+        # tensors, so we must re-apply base shapes after loading.
+        if config.use_mup:
+            _set_base_shapes_mup(model, config, config.d_model_base, rescale_params=False)
 
     metrics = TrainLogger(config)
     n_params = sum(p.numel() for p in model.parameters())

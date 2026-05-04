@@ -13,7 +13,7 @@ wandb login
 ## Run Data Processing Pipeline
 
 ```bash
-python prepare_data.py --datasets svg-icons-simple --stats --render
+python prepare_data.py --datasets svg-icons-simple svg-emoji-simple svg-stack-simple --stats --render
 ```
 
 ## Learning Rate Sweep
