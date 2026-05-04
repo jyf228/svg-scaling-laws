@@ -144,6 +144,7 @@ def plot_sequence_length_histogram(
         fig.tight_layout()
 
         out_path = out_dir / f"seq_len/seq_len_{split}.pdf"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(out_path, format="pdf", bbox_inches="tight", dpi=300)
         plt.close(fig)
         logger.info(f"Histogram saved to {out_path}")

@@ -1,5 +1,5 @@
 n_layer: 6
-n_head: 6
+n_head: 3
 d_model: 192
 d_ff: 768
 micro_batch_size: 128

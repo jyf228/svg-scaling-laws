@@ -4,6 +4,7 @@ End-to-end data preparation pipeline for download, cleaning, and tokenizing SVG 
 
 import logging
 
+from src.eval.render import render_by_complexity
 from src.data.split import create_splits
 from src.data.download import download_datasets
 from src.data.preprocess import process_svgs
@@ -14,7 +15,6 @@ from src.eval.dataset_metrics import (
     print_stats_table,
     plot_sequence_length_histogram,
 )
-from src.eval.render import render_samples
 from src.utils.config import get_config
 
 logger = logging.getLogger(__name__)
@@ -81,4 +81,4 @@ def pipeline(datasets: list[str], use_stats: bool, render: bool) -> None:
     # Step 7: Render complexity samples
     if render:
         logger.info("**** Step 7: Render SVG Samples ****")
-        render_samples(train_svgs)
+        render_by_complexity(train_svgs)

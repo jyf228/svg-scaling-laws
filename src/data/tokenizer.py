@@ -8,7 +8,9 @@ import os
 from pathlib import Path
 from typing import Union
 
-from tokenizers import Tokenizer, models, trainers, pre_tokenizers
+from tokenizers import Tokenizer, models, trainers, decoders
+from tokenizers.pre_tokenizers import WhitespaceSplit
+
 
 from src.utils.config import get_config
 
@@ -41,21 +43,20 @@ class SVGTokenizer:
         Train a BPE tokenizer on the provided texts.
         """
         tokenizer = Tokenizer(models.BPE(unk_token=UNK_TOKEN))
-        # Pre-tokenizers split on whitespace and split digits from letters
-        tokenizer.pre_tokenizer = pre_tokenizers.Sequence([
-            pre_tokenizers.WhitespaceSplit(),
-            pre_tokenizers.Digits(individual_digits=False),
-        ])
+        
+        tokenizer.pre_tokenizer = WhitespaceSplit()
 
         trainer = trainers.BpeTrainer(
             vocab_size=self.vocab_size,
             min_frequency=1,
             special_tokens=SPECIAL_TOKENS,
+            end_of_word_suffix="</w>",
             show_progress=True,
         )
 
         logger.info("Training BPE tokenizer...")
         tokenizer.train_from_iterator(texts, trainer=trainer, length=len(texts))
+        tokenizer.decoder = decoders.BPEDecoder(suffix="</w>")
         self._tokenizer = tokenizer
         logger.info(f"Tokenizer trained. Vocab size: {tokenizer.get_vocab_size()}")
 
